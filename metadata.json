@@ -1,0 +1,5 @@
+{
+  "name": "CodeTools",
+  "description": "All-in-one mobile utility for QR codes, barcodes, encoding, and cryptography.",
+  "requestFramePermissions": ["camera"]
+}

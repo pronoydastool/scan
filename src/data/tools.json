@@ -1,0 +1,51 @@
+[
+  {
+    "id": "qr-generator",
+    "title": "Advanced QR Generator",
+    "icon": "qr-code",
+    "category": "QR CODE TOOLS",
+    "description": "Create custom QR codes for URLs, WiFi, Contacts, and more."
+  },
+  {
+    "id": "qr-scanner",
+    "title": "QR Scanner",
+    "icon": "scan",
+    "category": "QR CODE TOOLS",
+    "description": "Scan QR codes using your camera."
+  },
+  {
+    "id": "barcode-scanner",
+    "title": "Barcode Scanner",
+    "icon": "scan-line",
+    "category": "BARCODE TOOLS",
+    "description": "Scan 1D barcodes using your camera."
+  },
+  {
+    "id": "barcode-generator",
+    "title": "Barcode Generator",
+    "icon": "barcode",
+    "category": "BARCODE TOOLS",
+    "description": "Generate various barcode formats."
+  },
+  {
+    "id": "base64",
+    "title": "Base64 Converter",
+    "icon": "binary",
+    "category": "ENCODING TOOLS",
+    "description": "Encode or decode Base64 strings."
+  },
+  {
+    "id": "hash-generator",
+    "title": "Hash Generator",
+    "icon": "shield-check",
+    "category": "CRYPTOGRAPHY TOOLS",
+    "description": "Generate MD5, SHA1, and SHA256 hashes."
+  },
+  {
+    "id": "text-utils",
+    "title": "Text Utilities",
+    "icon": "type",
+    "category": "TEXT UTILITIES",
+    "description": "Convert text to Binary, ASCII, and more."
+  }
+]
