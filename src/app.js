@@ -1,8 +1,8 @@
-import { createIcons, Home, Grid, History, Settings, Moon, Sun, ArrowLeft, Search, QrCode, Scan, ScanLine, Barcode, Binary, ShieldCheck, Type, Copy, Share2, Download, Trash2, Info, ExternalLink, CheckCircle, X, Camera, Zap } from 'lucide';
+import { createIcons, Home, Grid, History, Settings, Moon, Sun, ArrowLeft, Search, QrCode, Scan, ScanLine, Barcode, Binary, ShieldCheck, Type, Copy, Share2, Download, Trash2, Info, ExternalLink, CheckCircle, X, Camera, Zap, CameraOff, AlertCircle } from 'lucide';
 import toolsData from './data/tools.json';
 
 // Initialize Lucide icons
-const icons = { Home, Grid, History, Settings, Moon, Sun, ArrowLeft, Search, QrCode, Scan, ScanLine, Barcode, Binary, ShieldCheck, Type, Copy, Share2, Download, Trash2, Info, ExternalLink, CheckCircle, X, Camera, Zap };
+const icons = { Home, Grid, History, Settings, Moon, Sun, ArrowLeft, Search, QrCode, Scan, ScanLine, Barcode, Binary, ShieldCheck, Type, Copy, Share2, Download, Trash2, Info, ExternalLink, CheckCircle, X, Camera, Zap, CameraOff, AlertCircle };
 
 /**
  * CodeTools Main Application Logic
@@ -11,8 +11,17 @@ class CodeToolsApp {
   constructor() {
     this.currentPage = 'home';
     this.history = JSON.parse(localStorage.getItem('ct_history') || '[]');
+    this.records = JSON.parse(localStorage.getItem('ct_records') || '[]');
     this.settings = JSON.parse(localStorage.getItem('ct_settings') || '{"darkMode": false}');
     
+    // Globally suppress "play() request was interrupted" errors
+    window.addEventListener('unhandledrejection', (event) => {
+      const errString = String(event.reason).toLowerCase();
+      if (errString.includes("interrupted by a new load request") || errString.includes("interrupted because the media was removed")) {
+        event.preventDefault();
+      }
+    });
+
     this.init();
   }
 
@@ -205,55 +214,109 @@ class CodeToolsApp {
   }
 
   renderHistory(container) {
-    if (this.history.length === 0) {
+    let filter = 'all'; // all, scanned, generated, favorites
+    
+    // Quick inline render wrapper
+    const renderContent = () => {
+      let filteredRecords = this.records;
+      if (filter === 'scanned') filteredRecords = this.records.filter(r => r.type === 'scan');
+      if (filter === 'generated') filteredRecords = this.records.filter(r => r.type === 'generate');
+      if (filter === 'favorites') filteredRecords = this.records.filter(r => r.isFavorite);
+
+      if (this.records.length === 0) {
+        container.innerHTML = `
+          <div class="flex flex-col items-center justify-center h-full p-10 text-center opacity-50">
+            <i data-lucide="history" class="w-16 h-16 mb-4"></i>
+            <p>No history yet. Start scanning or generating to see them here!</p>
+          </div>
+        `;
+        this.refreshIcons();
+        return;
+      }
+
       container.innerHTML = `
-        <div class="flex flex-col items-center justify-center h-full p-10 text-center opacity-50">
-          <i data-lucide="history" class="w-16 h-16 mb-4"></i>
-          <p>No history yet. Start using tools to see them here!</p>
+        <div class="p-4 space-y-6">
+          <div class="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+            <button class="filter-btn px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${filter==='all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}" data-filter="all">All</button>
+            <button class="filter-btn px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${filter==='scanned' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}" data-filter="scanned">Scanned</button>
+            <button class="filter-btn px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${filter==='generated' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}" data-filter="generated">Generated</button>
+            <button class="filter-btn px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${filter==='favorites' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}" data-filter="favorites">Favorites</button>
+          </div>
+          
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-sm font-bold text-slate-400 uppercase tracking-wider">Your Records</h3>
+            <div class="flex gap-4">
+              <button id="export-history" class="text-xs font-bold text-indigo-500 flex items-center gap-1">
+                <i data-lucide="download" class="w-3 h-3"></i> Export
+              </button>
+              <button id="clear-records" class="text-xs font-bold text-red-500 flex items-center gap-1">
+                <i data-lucide="trash-2" class="w-3 h-3"></i> Clear All
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            ${filteredRecords.length === 0 ? '<p class="text-xs text-slate-400">No records found for this category.</p>' : ''}
+            ${filteredRecords.map((record) => {
+              const rIndex = this.records.indexOf(record);
+              const iconName = record.type === 'scan' ? 'scan' : 'edit-3';
+              return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center gap-4">
+                  <div class="w-10 h-10 ${record.type === 'scan' ? 'bg-green-50 text-green-600 dark:bg-green-900/30' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/30'} rounded-xl flex items-center justify-center">
+                    <i data-lucide="${iconName}" class="w-5 h-5"></i>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                       <span class="text-[10px] font-bold text-slate-400 uppercase bg-slate-100 dark:bg-slate-700 px-1.5 rounded">${record.format}</span>
+                       <h4 class="font-bold text-sm truncate">${record.data}</h4>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1">${new Date(record.timestamp).toLocaleString()}</p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button class="p-2 ${record.isFavorite ? 'text-yellow-500' : 'text-slate-300'} hover:text-yellow-500 transition-colors" onclick="window.app.toggleFavorite(${rIndex})">
+                      <i data-lucide="star" class="w-4 h-4 ${record.isFavorite ? 'fill-current' : ''}"></i>
+                    </button>
+                    <button class="p-2 text-slate-300 hover:text-indigo-500 transition-colors" onclick="window.app.copyRecord('${btoa(unescape(encodeURIComponent(record.data)))}')">
+                      <i data-lucide="copy" class="w-4 h-4"></i>
+                    </button>
+                    <button class="p-2 text-slate-300 hover:text-red-500 transition-colors" onclick="window.app.deleteRecord(${rIndex})">
+                      <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
         </div>
       `;
-      return;
-    }
 
-    container.innerHTML = `
-      <div class="p-4">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-sm font-bold text-slate-400 uppercase tracking-wider">Recent Activity</h3>
-          <button id="clear-history" class="text-xs font-bold text-red-500 flex items-center gap-1">
-            <i data-lucide="trash-2" class="w-3 h-3"></i> Clear
-          </button>
-        </div>
-        <div class="space-y-3">
-          ${this.history.map((item, index) => {
-            const tool = toolsData.find(t => t.id === item.toolId);
-            return `
-              <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center gap-4">
-                <div class="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center text-indigo-600">
-                  <i data-lucide="${tool.icon}" class="w-5 h-5"></i>
-                </div>
-                <div class="flex-1">
-                  <h4 class="font-bold text-sm">${tool.title}</h4>
-                  <p class="text-[10px] text-slate-400">${new Date(item.timestamp).toLocaleString()}</p>
-                </div>
-                <button class="p-2 text-slate-300 hover:text-red-500 transition-colors" onclick="window.app.deleteHistoryItem(${index})">
-                  <i data-lucide="trash-2" class="w-4 h-4"></i>
-                </button>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          filter = e.currentTarget.getAttribute('data-filter');
+          renderContent();
+        });
+      });
 
-    document.getElementById('clear-history').addEventListener('click', () => {
-      if (confirm('Are you sure you want to clear all history?')) {
-        this.history = [];
-        localStorage.setItem('ct_history', JSON.stringify(this.history));
-        this.renderHistory(container);
-        this.refreshIcons();
-      }
-    });
-    this.refreshIcons();
+      document.getElementById('clear-records').addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all records?')) {
+          this.records = [];
+          localStorage.setItem('ct_records', JSON.stringify(this.records));
+          renderContent();
+        }
+      });
+      
+      document.getElementById('export-history').addEventListener('click', () => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.records, null, 2));
+        const dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href", dataStr);
+        dlAnchorElem.setAttribute("download", "codetools-history.json");
+        dlAnchorElem.click();
+      });
+
+      this.refreshIcons();
+    };
+
+    renderContent();
   }
 
   renderSettings(container) {
@@ -363,6 +426,45 @@ class CodeToolsApp {
     if (window.activeScanner) {
       window.activeScanner.stop();
       window.activeScanner = null;
+    }
+  }
+
+  addRecord(type, format, data) {
+    const entry = {
+      type, // 'scan' or 'generate'
+      format, // 'QR' or 'CODE128' etc
+      data,
+      timestamp: new Date().toISOString(),
+      isFavorite: false
+    };
+    // if duplicate exists, just bring to front
+    this.records = this.records.filter(r => !(r.data === data && r.format === format));
+    this.records.unshift(entry);
+    if (this.records.length > 100) this.records.pop(); // keep last 100
+    localStorage.setItem('ct_records', JSON.stringify(this.records));
+  }
+
+  toggleFavorite(index) {
+    if(this.records[index]) {
+      this.records[index].isFavorite = !this.records[index].isFavorite;
+      localStorage.setItem('ct_records', JSON.stringify(this.records));
+      if (this.currentPage === 'history') {
+        this.renderHistory(document.getElementById('main-content'));
+      }
+    }
+  }
+
+  copyRecord(b64Data) {
+    const dataStr = decodeURIComponent(escape(atob(b64Data)));
+    navigator.clipboard.writeText(dataStr);
+    alert('Copied to clipboard!');
+  }
+
+  deleteRecord(index) {
+    this.records.splice(index, 1);
+    localStorage.setItem('ct_records', JSON.stringify(this.records));
+    if (this.currentPage === 'history') {
+      this.renderHistory(document.getElementById('main-content'));
     }
   }
 

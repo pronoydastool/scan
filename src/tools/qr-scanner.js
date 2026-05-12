@@ -28,6 +28,21 @@ export function init(container, app) {
       </button>
     </div>
 
+    <!-- Error View -->
+    <div id="error-view" class="hidden space-y-6 mt-4">
+      <div class="bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl flex items-start gap-3 border border-red-100 dark:border-red-900/30">
+        <i data-lucide="camera-off" class="w-5 h-5 text-red-500 mt-0.5"></i>
+        <div>
+          <h3 class="text-sm font-bold text-red-800 dark:text-red-200">Camera Access Denied</h3>
+          <p id="error-text" class="text-xs text-red-600 dark:text-red-300 mt-1">Please ensure camera permissions are granted in your browser settings to use the scanner.</p>
+        </div>
+      </div>
+      
+      <button id="retry-camera" class="w-full btn-primary flex items-center justify-center gap-2 mt-8">
+        <i data-lucide="camera" class="w-4 h-4"></i> Try Again
+      </button>
+    </div>
+
     <!-- Fullscreen Scanner UI -->
     <div id="scanner-view" class="fixed inset-0 z-[60] bg-black flex flex-col hidden">
       <!-- Top Bar -->
@@ -36,6 +51,10 @@ export function init(container, app) {
           <i data-lucide="x" class="w-6 h-6"></i>
         </button>
         <div class="flex gap-4">
+          <label class="p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/60 transition-colors cursor-pointer">
+            <i data-lucide="image" class="w-5 h-5"></i>
+            <input type="file" id="scan-file" accept="image/*" class="hidden">
+          </label>
           <button id="toggle-torch" class="p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/60 transition-colors hidden">
             <i data-lucide="zap" class="w-5 h-5"></i>
           </button>
@@ -78,6 +97,8 @@ export function init(container, app) {
 
   const scannerView = document.getElementById('scanner-view');
   const resultView = document.getElementById('result-view');
+  const errorView = document.getElementById('error-view');
+  const errorText = document.getElementById('error-text');
   const resultText = document.getElementById('result-text');
   const openLinkBtn = document.getElementById('open-link');
 
@@ -94,6 +115,7 @@ export function init(container, app) {
     transitionPromise = transitionPromise.then(async () => {
       scannerView.classList.remove('hidden');
       resultView.classList.add('hidden');
+      errorView.classList.add('hidden');
       torchBtn.classList.add('hidden');
       isTorchOn = false;
       lastResult = null;
@@ -127,12 +149,10 @@ export function init(container, app) {
       try {
         await html5QrCode.start(
           { 
-            facingMode: currentFacingMode,
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            facingMode: currentFacingMode
           },
           {
-            fps: 20,
+            fps: 10,
             qrbox: { width: 250, height: 250 },
             experimentalFeatures: {
               useBarCodeDetectorIfSupported: true
@@ -143,7 +163,7 @@ export function init(container, app) {
             lastResult = decodedText;
 
             stopScanner().then(() => {
-              showResult(decodedText);
+              showResult(decodedText, 'QR Code');
             });
           },
           () => {
@@ -186,17 +206,19 @@ export function init(container, app) {
             
             await html5QrCode.start(
               cameraId,
-              { 
-                fps: 20,
+              {
+                fps: 10,
                 qrbox: { width: 250, height: 250 },
-                experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+                experimentalFeatures: {
+                  useBarCodeDetectorIfSupported: true
+                }
               },
               (decodedText) => {
                 if (decodedText === lastResult) return;
                 lastResult = decodedText;
 
                 stopScanner().then(() => {
-                  showResult(decodedText);
+                  showResult(decodedText, 'QR Code');
                 });
               },
               () => {}
@@ -206,9 +228,25 @@ export function init(container, app) {
             throw new Error("No cameras found.");
           }
         } catch (fallbackErr) {
+          const fallbackErrorString = String(fallbackErr).toLowerCase();
+          if (fallbackErrorString.includes("interrupted by a new load request") || fallbackErrorString.includes("interrupted because the media was removed")) {
+            console.warn("Camera fallback start was interrupted (normal during rapid switching)");
+            return;
+          }
+
           console.error("Camera fallback start error:", fallbackErr);
-          alert("Could not start camera. Please ensure permissions are granted.");
-          app.closeTool();
+          let errMsg = "Could not start camera. Please ensure permissions are granted.";
+          
+          if (fallbackErrorString.includes("not allowed") || fallbackErrorString.includes("permission denied")) {
+            errMsg = "Camera access was denied. Please allow camera permissions, or try opening the app in a New Tab if you are in a preview.";
+          } else if (fallbackErrorString.includes("not found") || fallbackErrorString.includes("no camera")) {
+            errMsg = "No camera found on your device.";
+          }
+          
+          scannerView.classList.add('hidden');
+          errorView.classList.remove('hidden');
+          errorText.innerText = errMsg;
+          app.refreshIcons();
         }
       }
     });
@@ -241,16 +279,83 @@ export function init(container, app) {
     return transitionPromise;
   }
 
-  function showResult(text) {
+  function showResult(text, formatName) {
+    if (typeof app.addRecord === 'function') {
+      app.addRecord('scan', formatName || 'QR Code', text);
+    }
+
     resultView.classList.remove('hidden');
     resultText.innerText = text;
 
-    if (text.startsWith('http://') || text.startsWith('https://')) {
-      openLinkBtn.classList.remove('hidden');
-      openLinkBtn.onclick = () => window.open(text, '_blank');
-    } else {
-      openLinkBtn.classList.add('hidden');
+    // Reset button
+    openLinkBtn.className = 'flex-1 btn-primary flex items-center justify-center gap-2 hidden';
+    openLinkBtn.onclick = null;
+
+    let actionLabel = '';
+    let actionIcon = '';
+    let actionUrl = '';
+
+    const textUpper = text.toUpperCase();
+
+    if (textUpper.startsWith('HTTP://') || textUpper.startsWith('HTTPS://')) {
+      actionLabel = 'Open Link';
+      actionIcon = 'external-link';
+      actionUrl = text;
+    } else if (textUpper.startsWith('TEL:')) {
+      actionLabel = 'Call Number';
+      actionIcon = 'phone';
+      actionUrl = text;
+    } else if (textUpper.startsWith('MAILTO:')) {
+      actionLabel = 'Send Email';
+      actionIcon = 'mail';
+      actionUrl = text;
+    } else if (textUpper.startsWith('SMSTO:')) {
+      actionLabel = 'Send SMS';
+      actionIcon = 'message-square';
+      actionUrl = text;
+    } else if (textUpper.startsWith('GEO:')) {
+      actionLabel = 'Open Maps';
+      actionIcon = 'map-pin';
+      // Convert geo:lat,lng to a google maps link for better web support
+      const coords = text.substring(4).split('?')[0]; // simple parsing
+      actionUrl = `https://www.google.com/maps/search/?api=1&query=${coords}`;
+    } else if (textUpper.startsWith('WIFI:')) {
+      // Browsers can't easily auto-connect to wifi, but we can offer to copy password or alert
+      actionLabel = 'WiFi Network';
+      actionIcon = 'wifi';
+      actionUrl = null;
+      openLinkBtn.onclick = () => {
+        alert('Browsers do not support automatic WiFi connection. Please copy the password from the text above and connect via your device settings.');
+      };
+    } else if (textUpper.startsWith('BEGIN:VCARD')) {
+      actionLabel = 'Save Contact';
+      actionIcon = 'user';
+      // To "save" a vcard on web, we download it as a .vcf file
+      actionUrl = null;
+      openLinkBtn.onclick = () => {
+        const blob = new Blob([text], { type: 'text/vcard' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'contact.vcf';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
     }
+
+    if (actionLabel) {
+      openLinkBtn.innerHTML = `<i data-lucide="${actionIcon}" class="w-4 h-4"></i> ${actionLabel}`;
+      openLinkBtn.classList.remove('hidden');
+      if (actionUrl) {
+         openLinkBtn.onclick = () => window.open(actionUrl, '_blank');
+      }
+    } else {
+      // Just a text search fallback
+      openLinkBtn.innerHTML = `<i data-lucide="search" class="w-4 h-4"></i> Search`;
+      openLinkBtn.classList.remove('hidden');
+      openLinkBtn.onclick = () => window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`, '_blank');
+    }
+
     app.refreshIcons();
   }
 
@@ -294,7 +399,34 @@ export function init(container, app) {
     }
   });
 
+  const fileInput = document.getElementById('scan-file');
+  fileInput.addEventListener('change', async (e) => {
+    if (e.target.files.length == 0) return;
+    const file = e.target.files[0];
+    
+    if (!html5QrCode) {
+      html5QrCode = new Html5Qrcode("reader", {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+      });
+    }
+
+    try {
+      if (isScanning) await stopScanner();
+      const decodedText = await html5QrCode.scanFileV2(file);
+      showResult(decodedText.decodedText, decodedText?.result?.format?.formatName || 'QR Code');
+    } catch (err) {
+      console.error(err);
+      alert('Could not detect a QR code in the selected image.');
+    } finally {
+      fileInput.value = ''; // Reset
+    }
+  });
+
   document.getElementById('scan-again').addEventListener('click', () => {
+    startScanner();
+  });
+
+  document.getElementById('retry-camera').addEventListener('click', () => {
     startScanner();
   });
 
