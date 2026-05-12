@@ -146,14 +146,48 @@ export function init(container, app) {
         });
       }
 
+      const getBestCamera = async () => {
+        try {
+          const cameras = await Html5Qrcode.getCameras();
+          if (!cameras || cameras.length === 0) return { facingMode: currentFacingMode };
+
+          // If we are looking for front camera, just use facingMode
+          if (currentFacingMode === "user") return { facingMode: "user" };
+
+          // Filter for back cameras
+          const backCameras = cameras.filter(c => 
+            c.label.toLowerCase().includes('back') || 
+            c.label.toLowerCase().includes('rear') ||
+            c.label.toLowerCase().includes('environment') ||
+            c.label.toLowerCase().includes('wide') ||
+            c.label.toLowerCase().includes('ultra')
+          );
+
+          if (backCameras.length === 0) return { facingMode: "environment" };
+
+          // Look for wide-angle specifically as requested
+          const wideCamera = backCameras.find(c => 
+            c.label.toLowerCase().includes('wide') || 
+            c.label.toLowerCase().includes('ultra')
+          );
+
+          return wideCamera ? wideCamera.id : backCameras[0].id;
+        } catch (e) {
+          return { facingMode: currentFacingMode };
+        }
+      };
+
       try {
+        const cameraSelector = await getBestCamera();
+        
         await html5QrCode.start(
-          { 
-            facingMode: currentFacingMode
-          },
+          cameraSelector,
           {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
+            fps: 25,
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const size = Math.min(viewfinderWidth, viewfinderHeight) * 0.7;
+              return { width: size, height: size };
+            },
             experimentalFeatures: {
               useBarCodeDetectorIfSupported: true
             }
@@ -179,7 +213,11 @@ export function init(container, app) {
         }
       } catch (err) {
         const errorMessage = err?.message || err || "";
-        if (errorMessage.includes("interrupted by a new load request") || errorMessage.includes("interrupted because the media was removed")) {
+        if (
+          errorMessage.includes("interrupted by a new load request") || 
+          errorMessage.includes("interrupted because the media was removed") ||
+          errorMessage.includes("play() request was interrupted")
+        ) {
           console.warn("Camera start was interrupted (normal during rapid switching)");
           return;
         }
@@ -207,8 +245,11 @@ export function init(container, app) {
             await html5QrCode.start(
               cameraId,
               {
-                fps: 10,
-                qrbox: { width: 250, height: 250 },
+                fps: 25,
+                qrbox: (viewfinderWidth, viewfinderHeight) => {
+                  const size = Math.min(viewfinderWidth, viewfinderHeight) * 0.7;
+                  return { width: size, height: size };
+                },
                 experimentalFeatures: {
                   useBarCodeDetectorIfSupported: true
                 }
@@ -229,7 +270,11 @@ export function init(container, app) {
           }
         } catch (fallbackErr) {
           const fallbackErrorString = String(fallbackErr).toLowerCase();
-          if (fallbackErrorString.includes("interrupted by a new load request") || fallbackErrorString.includes("interrupted because the media was removed")) {
+          if (
+            fallbackErrorString.includes("interrupted by a new load request") || 
+            fallbackErrorString.includes("interrupted because the media was removed") ||
+            fallbackErrorString.includes("play() request was interrupted")
+          ) {
             console.warn("Camera fallback start was interrupted (normal during rapid switching)");
             return;
           }
@@ -265,7 +310,9 @@ export function init(container, app) {
           if (
             errorMessage.includes("parameter 1 is not of type 'Node'") ||
             errorMessage.includes("removeChild") ||
-            errorMessage.includes("MediaStreamTrack")
+            errorMessage.includes("MediaStreamTrack") ||
+            errorMessage.includes("interrupted because the media was removed") ||
+            errorMessage.includes("play() request was interrupted")
           ) {
             // Silently ignore internal cleanup errors
           } else {
